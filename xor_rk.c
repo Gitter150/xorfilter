@@ -322,10 +322,94 @@ u64 *build_substring_keys(const char *text, size_t text_len, size_t m, u32 *out_
     return keys;
 }
 
+// Reads patterns from a file.
+// Splits on whitespace. Returns dynamically allocated array of strings.
+// Caller must free each string and the array itself.
+void load_patterns(const char *filename, char ***out_patterns, size_t *out_count) {
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) {
+        fprintf(stderr, "Error: cannot open %s\n", filename);
+        exit(1);
+    }
+
+    // Determine file size
+    fseek(fp, 0, SEEK_END);
+    long fsize = ftell(fp);
+    rewind(fp);
+
+    if (fsize < 0) {
+        fprintf(stderr, "Error reading %s\n", filename);
+        exit(1);
+    }
+
+    // Read entire file into buffer
+    char *buffer = malloc((size_t)fsize + 1);
+    if (!buffer) {
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(1);
+    }
+    size_t read = fread(buffer, 1, (size_t)fsize, fp);
+    buffer[read] = '\0';
+    fclose(fp);
+
+    // Count words (simple whitespace splitting)
+    size_t count = 0;
+    {
+        char *p = buffer;
+        while (*p) {
+            while (*p && isspace((unsigned char)*p)) p++;
+            if (*p) {
+                count++;
+                while (*p && !isspace((unsigned char)*p)) p++;
+            }
+        }
+    }
+
+    // Allocate pattern array
+    char **patterns = malloc(count * sizeof(char*));
+    if (!patterns) {
+        fprintf(stderr, "Failed to allocate pattern list\n");
+        exit(1);
+    }
+
+    // Extract words
+    size_t idx = 0;
+    char *p = buffer;
+    while (*p) {
+        while (*p && isspace((unsigned char)*p)) p++;
+
+        if (*p) {
+            // Start of a word
+            char *start = p;
+            while (*p && !isspace((unsigned char)*p)) p++;
+            size_t len = p - start;
+
+            char *word = malloc(len + 1);
+            if (!word) {
+                fprintf(stderr, "Allocation failure for word\n");
+                exit(1);
+            }
+
+            memcpy(word, start, len);
+            word[len] = '\0';
+
+            patterns[idx++] = word;
+        }
+    }
+
+    // Cleanup buffer
+    free(buffer);
+
+    *out_patterns = patterns;
+    *out_count = count;
+}
+
 /* ----------------------- Main / demo ----------------------- */
 
 int main() {
     // === Config ===
+    char **patterns_arr;
+    size_t n_patterns_all;
     const char *filename = "input.txt";
     size_t text_len;
     char *text = read_text_file(filename, &text_len);
@@ -333,11 +417,14 @@ int main() {
     to_lowercase(text);
 
     // Example patterns (you can replace with file input)
-    const char *patterns_arr[] = {
-        "apple", "quick", "brown", "quantum", "lazy", "data", "science", "pattern",
-        "filter", "rabin", "karp", "algorithm", "substr", "match", "hello"
-    };
-    size_t n_patterns_all = sizeof(patterns_arr) / sizeof(patterns_arr[0]);
+    
+    load_patterns("patterns.txt", &patterns_arr, &n_patterns_all);
+
+    printf("Loaded %zu patterns.\n", n_patterns_all);
+
+    // Optional: lowercase all patterns
+    for (size_t i = 0; i < n_patterns_all; i++)
+        to_lowercase(patterns_arr[i]);
 
     // Group patterns by length using simple two-pass
     // Find max pattern length
@@ -417,5 +504,11 @@ int main() {
     for (size_t m = 0; m <= max_m; ++m) if (lists[m]) free(lists[m]);
     free(lists); free(counts); free(pos);
     free(text);
+
+    for (size_t i = 0; i < n_patterns_all; i++)
+        free(patterns_arr[i]);
+
+    free(patterns_arr);
+
     return 0;
 }
